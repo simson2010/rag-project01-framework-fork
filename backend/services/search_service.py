@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Optional
 import logging
 from datetime import datetime
-from services.embedding_service import EmbeddingService, EmbeddingProvider
+from services.embedding_service import EmbeddingService, EmbeddingProvider, EmbeddingFactory, EmbeddingConfig
 from utils.config import VectorDBProvider, CHROMA_CONFIG
 import os
 import json
@@ -151,66 +151,78 @@ class SearchService:
 
             # 连接到 Chroma
             logger.info(f"Connecting to Chroma at {self.chroma_uri}")
-            import chromadb
-            chroma_client = chromadb.PersistentClient(
-                path=self.chroma_uri
-            )
+            from langchain.vectorstores import Chroma
+            embedding_config = EmbeddingConfig(EmbeddingProvider.OPENAI, 'text-embedding-3-large')
+            embedding=EmbeddingFactory().create_embedding_function(embedding_config)
+            chroma_client = Chroma(
+                persist_directory=self.chroma_uri,
+                embedding_function=embedding,
+                collection_name=collection_id
+                )
+
             logger.info("Successfully connected to Chroma")
             
             # 获取collection
             logger.info(f"Loading collection: {collection_id}")
-            collection = chroma_client.get_collection(collection_id)
+            # collection = chroma_client.get_collection(collection_id)
             
             # 记录collection的基本信息
-            logger.info(f"Collection info - Entities: {collection.count}")
+            # logger.info(f"Collection info - Entities: {collection.count}")
             
             # 从collection中读取embedding配置
-            logger.info("Querying sample entity for embedding configuration")
-            embedding_result = self.embedding_service.create_single_embedding(query, EmbeddingProvider.OPENAI, 'text-embedding-3-large')
-            logger.info(f"Embedding result {len(embedding_result)}")
+            # logger.info("Querying sample entity for embedding configuration")
+            # embedding_result = self.embedding_service.create_single_embedding(query, EmbeddingProvider.OPENAI, 'text-embedding-3-large')
+            # logger.info(f"Embedding result {len(embedding_result)}")
 
-            results = collection.query(
-                query_embeddings=[embedding_result]
-            )
+            # results = collection.query(
+            #     query_embeddings=[embedding_result]
+            # )
+
+            results = chroma_client.similarity_search_with_score(query = query, k=10)
 
             logger.info(f"query result: {results}")
             
             # 处理结果
             processed_results = []
-            logger.info(f"Raw search results count: {len(results['ids'][0])}")
+            logger.info(f"Raw search results count: {len(results)}")
 
-            # 同时遍历距离、元数据和文档内容
-            for i in range(len(results['ids'][0])):
-                distance = results['distances'][0][i]
-                score = distance if distance < 1 else distance -1   # 将距离转换为相似度分数
-                metadata = results['metadatas'][0][i]
-                document = results['documents'][0][i]
+            for doc, score in results:
+                # 将余弦距离转换为相似度分数（假设使用余弦相似度）
+                similarity_score = score  # 当distance是余弦距离时，1-distance即为相似度
                 
-                logger.info(f"Processing result {i+1} - Score: {score:.4f}")
+                # 解析元数据
+                metadata = doc.metadata
+                page_content = doc.page_content
+                
+                logger.info(f"Processing result - Score: {similarity_score:.4f}")
                 
                 processed_results.append({
-                    "text": document,
-                    "score": float(score),
+                    "text": page_content,
+                    "score": float(similarity_score),
                     "metadata": {
-                        "source": metadata.get('document_name', ''),
-                        "page": metadata.get('page_number', ''),
+                        "source": metadata.get('document_name', 'Unknown'),
+                        "page": metadata.get('page_number', 'N/A'),
                         "chunk": metadata.get('chunk_id', -1),
-                        "total_chunks": metadata.get('total_chunks', -1),  # 需确保索引时存储该字段
+                        "total_chunks": metadata.get('total_chunks', -1),
                         "page_range": metadata.get('page_range', ''),
-                        "embedding_provider": metadata.get('embedding_provider', ''),
-                        "embedding_model": metadata.get('embedding_model', ''),
+                        "word_count": metadata.get('word_count', 0),
+                        "embedding_provider": metadata.get('embedding_provider', 'unknown'),
+                        "embedding_model": metadata.get('embedding_model', 'unknown'),
                         "embedding_timestamp": metadata.get('embedding_timestamp', '')
                     }
                 })
 
-            # 添加过滤逻辑（根据threshold和word_count_threshold）
+            # 应用过滤条件
             filtered_results = [
                 result for result in processed_results
-                if result['score'] >= threshold 
-                and result['metadata'].get('word_count', 0) >= word_count_threshold
+                if result['score'] <= threshold 
+                and result['metadata']['word_count'] >= word_count_threshold
             ]
 
-            response_data = {"results": filtered_results[:top_k]}  # 取top_k结果
+            # 取top_k结果
+            final_results = sorted(filtered_results, key=lambda x: x['score'], reverse=True)[:top_k]
+
+            response_data = {"results": final_results}  # 取top_k结果
             
             # 添加详细的保存逻辑日志
             logger.info(f"Preparing to handle save_results (flag: {save_results})")
