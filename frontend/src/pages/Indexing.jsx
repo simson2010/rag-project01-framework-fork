@@ -5,7 +5,7 @@ import { apiBaseUrl } from '../config/config';
 
 const Indexing = () => {
   const [embeddingFile, setEmbeddingFile] = useState('');
-  const [vectorDb, setVectorDb] = useState('milvus');
+  const [vectorDb, setVectorDb] = useState('chroma');
   const [indexMode, setIndexMode] = useState('standard');
   const [status, setStatus] = useState('');
   const [embeddedFiles, setEmbeddedFiles] = useState([]);
@@ -14,7 +14,7 @@ const Indexing = () => {
   const [selectedCollection, setSelectedCollection] = useState('');
   const [collectionDetails, setCollectionDetails] = useState(null);
   const [providers, setProviders] = useState([]);
-  const [selectedProvider, setSelectedProvider] = useState('milvus');
+  const [selectedProvider, setSelectedProvider] = useState('chroma');
 
   // 数据库和索引模式的配置
   const dbConfigs = {
