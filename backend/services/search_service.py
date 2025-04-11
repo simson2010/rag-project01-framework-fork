@@ -3,6 +3,8 @@ import logging
 from datetime import datetime
 from services.embedding_service import EmbeddingService, EmbeddingProvider, EmbeddingFactory, EmbeddingConfig
 from utils.config import VectorDBProvider, CHROMA_CONFIG
+import chromadb
+from chromadb.config import Settings
 from langchain.vectorstores import Chroma
 import os
 import json
@@ -32,7 +34,7 @@ class SearchService:
             List[Dict[str, str]]: 支持的向量数据库提供商列表
         """
         return [
-            {"id":"chroma", "name":"Chroma DB"},{"id":"milvus", "name":"Milvus DB"}
+            {"id": VectorDBProvider.CHROMA.value, "name":"Chroma DB"},{"id": VectorDBProvider.MILVUS.value, "name":"Milvus DB"}
         ]  # 返回空列表，移除Milvus支持
 
     def list_collections(self, provider: str = VectorDBProvider.CHROMA.value) -> List[Dict[str, Any]]:
@@ -46,9 +48,7 @@ class SearchService:
             List[Dict[str, Any]]: 集合信息列表，包含id、名称和文档数量
         """
         try:
-            import chromadb
-            from chromadb.config import Settings
-            
+
             # 连接到Chroma
             client = chromadb.PersistentClient(
                 path=CHROMA_CONFIG["uri"]
@@ -199,7 +199,6 @@ class SearchService:
                 
                 #归一化分数
                 normalized_score = 1 - (similarity_score - min_score) / (max_score - min_score)
-
 
                 # 解析元数据
                 metadata = doc.metadata
