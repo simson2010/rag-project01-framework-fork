@@ -13,11 +13,6 @@ from chromadb.config import Settings
 
 logger = logging.getLogger(__name__)
 
-# 修改 CHROMA_CONFIG 配置
-CHROMA_CONFIG = {
-    "persist_directory": "chroma_db"
-}
-
 class VectorDBConfig:
     """
     向量数据库配置类，用于存储和管理向量数据库的配置信息
@@ -28,7 +23,12 @@ class VectorDBConfig:
         """
         self.provider = provider  # 固定为 Chroma
         self.index_mode = index_mode
-        self.db_config = CHROMA_CONFIG
+        if provider == "milvus":
+            self.milvus_uri = MILVUS_CONFIG["uri"]
+            self.db_config = MILVUS_CONFIG
+        else:
+            self.milvus_uri = None 
+            self.db_config = CHROMA_CONFIG
 
     @property
     def uri(self):
@@ -59,72 +59,12 @@ class VectorStoreService:
             anonymized_telemetry=False
         ))
         return client
-    
-    def _index_to_chroma(self, embeddings_data: Dict[str, Any], config: VectorDBConfig) -> Dict[str, Any]:
-        try:
-            start_time = datetime.now()
-            
-            # 初始化 Chroma 客户端
-            client = self._init_chroma_client()
-            
-            # 创建或获取集合
-            collection_name = f"collection_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            
-            # 创建集合，使用简单的 metadata
-            collection = client.create_collection(
-                name=collection_name,
-                metadata={
-                    "description": "Document embeddings collection",
-                    "created_at": datetime.now().isoformat()
-                }
-            )
-            
-            # 准备数据
-            ids = []
-            embeddings = []
-            metadatas = []
-            documents = []
-            
-            for idx, emb in enumerate(embeddings_data["embeddings"]):
-                ids.append(str(idx))
-                embeddings.append(emb["embedding"])
-                # 确保 metadata 中只包含简单类型
-                metadatas.append({
-                    "content": str(emb["metadata"].get("content", "")),
-                    "page_number": str(emb["metadata"].get("page_number", "")),
-                    "chunk_id": str(emb["metadata"].get("chunk_id", "")),
-                    "document_name": str(embeddings_data.get("filename", "")),
-                    "embedding_model": str(embeddings_data.get("embedding_model", "")),
-                    "embedding_provider": str(embeddings_data.get("embedding_provider", ""))
-                })
-                documents.append(str(emb["metadata"].get("content", "")))
-            
-            # 添加数据到集合
-            collection.add(
-                ids=ids,
-                embeddings=embeddings,
-                metadatas=metadatas,
-                documents=documents
-            )
-            
-            end_time = datetime.now()
-            processing_time = (end_time - start_time).total_seconds()
-            
-            return {
-                "index_size": len(ids),
-                "collection_name": collection_name,
-                "processing_time": processing_time
-            }
-            
-        except Exception as e:
-            logger.error(f"Error indexing to Chroma: {str(e)}")
-            raise
-
 
     def index_embeddings(self, embedding_file: str, config: VectorDBConfig) -> Dict[str, Any]:
         """
         将嵌入向量索引到 ChromaDB
         """
+        logger.info(f"[index_embeddings]file: {embedding_file} | config: {config}")
         start_time = datetime.now()
         embeddings_data = self._load_embeddings(embedding_file)
         
@@ -158,9 +98,7 @@ class VectorStoreService:
 
     def _index_to_chroma(self, embeddings_data: Dict[str, Any], config: VectorDBConfig) -> Dict[str, Any]:
         try:
-            import chromadb
-            from chromadb.config import Settings
-
+            logger.info(f'[vector_store_service][config]URI:{config.uri}')
             # 客户端配置
             client = chromadb.PersistentClient(
                 path=config.uri
@@ -209,6 +147,136 @@ class VectorStoreService:
         except Exception as e:
             logger.error(f"ChromaDB indexing error: {str(e)}")
             raise
+
+    def _index_to_milvus(self, embeddings_data: Dict[str, Any], config: VectorDBConfig) -> Dict[str, Any]:
+        try:
+            # 使用 filename 作为 collection 名称前缀
+            filename = embeddings_data.get("filename", "")
+            # 如果有 .pdf 后缀，移除它
+            base_name = filename.replace('.pdf', '') if filename else "doc"
+            
+            # Ensure the collection name starts with a letter or underscore
+            if not base_name[0].isalpha() and base_name[0] != '_':
+                base_name = f"_{base_name}"
+            
+            # Get embedding provider
+            embedding_provider = embeddings_data.get("embedding_provider", "unknown")
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            collection_name = f"{base_name}_{embedding_provider}_{timestamp}"
+            
+            # 连接到Milvus
+            connections.connect(
+                alias="default", 
+                uri=config.milvus_uri
+            )
+            
+            # 从顶层配置获取向量维度
+            vector_dim = int(embeddings_data.get("vector_dimension"))
+            if not vector_dim:
+                raise ValueError("Missing vector_dimension in embedding file")
+            
+            logger.info(f"Creating collection with dimension: {vector_dim}")
+            
+            # 定义字段
+            fields = [
+                {"name": "id", "dtype": "INT64", "is_primary": True, "auto_id": True},
+                {"name": "content", "dtype": "VARCHAR", "max_length": 5000},
+                {"name": "document_name", "dtype": "VARCHAR", "max_length": 255},
+                {"name": "chunk_id", "dtype": "INT64"},
+                {"name": "total_chunks", "dtype": "INT64"},
+                {"name": "word_count", "dtype": "INT64"},
+                {"name": "page_number", "dtype": "VARCHAR", "max_length": 10},
+                {"name": "page_range", "dtype": "VARCHAR", "max_length": 10},
+                # {"name": "chunking_method", "dtype": "VARCHAR", "max_length": 50},
+                {"name": "embedding_provider", "dtype": "VARCHAR", "max_length": 50},
+                {"name": "embedding_model", "dtype": "VARCHAR", "max_length": 50},
+                {"name": "embedding_timestamp", "dtype": "VARCHAR", "max_length": 50},
+                {
+                    "name": "vector",
+                    "dtype": "FLOAT_VECTOR",
+                    "dim": vector_dim,
+                    "params": self._get_milvus_index_params(config)
+                }
+            ]
+            
+            # 准备数据为列表格式
+            entities = []
+            for emb in embeddings_data["embeddings"]:
+                entity = {
+                    "content": str(emb["metadata"].get("content", "")),
+                    "document_name": embeddings_data.get("filename", ""),  # 使用 filename 而不是 document_name
+                    "chunk_id": int(emb["metadata"].get("chunk_id", 0)),
+                    "total_chunks": int(emb["metadata"].get("total_chunks", 0)),
+                    "word_count": int(emb["metadata"].get("word_count", 0)),
+                    "page_number": str(emb["metadata"].get("page_number", 0)),
+                    "page_range": str(emb["metadata"].get("page_range", "")),
+                    # "chunking_method": str(emb["metadata"].get("chunking_method", "")),
+                    "embedding_provider": embeddings_data.get("embedding_provider", ""),  # 从顶层配置获取
+                    "embedding_model": embeddings_data.get("embedding_model", ""),  # 从顶层配置获取
+                    "embedding_timestamp": str(emb["metadata"].get("embedding_timestamp", "")),
+                    "vector": [float(x) for x in emb.get("embedding", [])]
+                }
+                entities.append(entity)
+            
+            logger.info(f"Creating Milvus collection: {collection_name}")
+            
+            # 创建collection
+            # field_schemas = [
+            #     FieldSchema(name=field["name"], 
+            #                dtype=getattr(DataType, field["dtype"]),
+            #                is_primary="is_primary" in field and field["is_primary"],
+            #                auto_id="auto_id" in field and field["auto_id"],
+            #                max_length=field.get("max_length"),
+            #                dim=field.get("dim"),
+            #                params=field.get("params"))
+            #     for field in fields
+            # ]
+
+            field_schemas = []
+            for field in fields:
+                extra_params = {}
+                if field.get('max_length') is not None:
+                    extra_params['max_length'] = field['max_length']
+                if field.get('dim') is not None:
+                    extra_params['dim'] = field['dim']
+                if field.get('params') is not None:
+                    extra_params['params'] = field['params']
+                field_schema = FieldSchema(
+                    name=field["name"], 
+                    dtype=getattr(DataType, field["dtype"]),
+                    is_primary=field.get("is_primary", False),
+                    auto_id=field.get("auto_id", False),
+                    **extra_params
+                )
+                field_schemas.append(field_schema)
+
+            schema = CollectionSchema(fields=field_schemas, description=f"Collection for {collection_name}")
+            collection = Collection(name=collection_name, schema=schema)
+            
+            # 插入数据
+            logger.info(f"Inserting {len(entities)} vectors")
+            insert_result = collection.insert(entities)
+            
+            # 创建索引
+            index_params = {
+                "metric_type": "COSINE",
+                "index_type": self._get_milvus_index_type(config),
+                "params": self._get_milvus_index_params(config)
+            }
+            collection.create_index(field_name="vector", index_params=index_params)
+            collection.load()
+            
+            return {
+                "index_size": len(insert_result.primary_keys),
+                "collection_name": collection_name
+            }
+            
+        except Exception as e:
+            logger.error(f"Error indexing to Milvus: {str(e)}")
+            raise
+        
+        finally:
+            connections.disconnect("default")
 
     def list_collections(self, vector_provider) -> List[str]:
         """列出所有 Chroma 集合"""
