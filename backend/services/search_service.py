@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from services.embedding_service import EmbeddingService, EmbeddingProvider, EmbeddingFactory, EmbeddingConfig
 from utils.config import VectorDBProvider, CHROMA_CONFIG
+from langchain.vectorstores import Chroma
 import os
 import json
 
@@ -151,7 +152,7 @@ class SearchService:
 
             # 连接到 Chroma
             logger.info(f"Connecting to Chroma at {self.chroma_uri}")
-            from langchain.vectorstores import Chroma
+            
             embedding_config = EmbeddingConfig(EmbeddingProvider.OPENAI, 'text-embedding-3-large')
             embedding=EmbeddingFactory().create_embedding_function(embedding_config)
             chroma_client = Chroma(
@@ -159,24 +160,24 @@ class SearchService:
                 embedding_function=embedding,
                 collection_name=collection_id
                 )
-
             logger.info("Successfully connected to Chroma")
             
+            #get a record from chroma_client
+            first = chroma_client.get()
+            
+            embedding_provider = first["metadatas"][0]["embedding_provider"]
+            embedding_model = first["metadatas"][0]["embedding_model"]
+            logger.info(f"[SearchService]{embedding_provider} | {embedding_model}")
             # 获取collection
             logger.info(f"Loading collection: {collection_id}")
-            # collection = chroma_client.get_collection(collection_id)
-            
-            # 记录collection的基本信息
-            # logger.info(f"Collection info - Entities: {collection.count}")
-            
-            # 从collection中读取embedding配置
-            # logger.info("Querying sample entity for embedding configuration")
-            # embedding_result = self.embedding_service.create_single_embedding(query, EmbeddingProvider.OPENAI, 'text-embedding-3-large')
-            # logger.info(f"Embedding result {len(embedding_result)}")
-
-            # results = collection.query(
-            #     query_embeddings=[embedding_result]
-            # )
+            ## Create correct embedding method for Chroma
+            embedding_config = EmbeddingConfig(embedding_provider, embedding_model)
+            embedding=EmbeddingFactory().create_embedding_function(embedding_config)
+            chroma_client = Chroma(
+                persist_directory=self.chroma_uri,
+                embedding_function=embedding,
+                collection_name=collection_id
+                )
 
             results = chroma_client.similarity_search_with_score(query = query, k=10)
 
@@ -185,20 +186,30 @@ class SearchService:
             # 处理结果
             processed_results = []
             logger.info(f"Raw search results count: {len(results)}")
+            # 获取所有的分数
+
+            logger.info(f'get all scores from result')
+            scores = [score for _, score in results]
+            min_score = min(scores)
+            max_score = max(scores)
 
             for doc, score in results:
                 # 将余弦距离转换为相似度分数（假设使用余弦相似度）
                 similarity_score = score  # 当distance是余弦距离时，1-distance即为相似度
                 
+                #归一化分数
+                normalized_score = 1 - (similarity_score - min_score) / (max_score - min_score)
+
+
                 # 解析元数据
                 metadata = doc.metadata
                 page_content = doc.page_content
                 
-                logger.info(f"Processing result - Score: {similarity_score:.4f}")
+                logger.info(f"Processing result - Score: {normalized_score:.4f}")
                 
                 processed_results.append({
                     "text": page_content,
-                    "score": float(similarity_score),
+                    "score": float(normalized_score),
                     "metadata": {
                         "source": metadata.get('document_name', 'Unknown'),
                         "page": metadata.get('page_number', 'N/A'),
@@ -212,10 +223,13 @@ class SearchService:
                     }
                 })
 
+
+            all_score = [item["score"]  for item in processed_results]
+            logger.info(f"All new scores: [{all_score}]")
             # 应用过滤条件
             filtered_results = [
                 result for result in processed_results
-                if result['score'] <= threshold 
+                if result['score'] >= threshold 
                 and result['metadata']['word_count'] >= word_count_threshold
             ]
 
