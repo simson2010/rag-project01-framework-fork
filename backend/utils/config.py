@@ -26,6 +26,7 @@ MILVUS_CONFIG = {
     }
 }
 
+# 添加 Chroma 配置
 CHROMA_CONFIG = {
     "uri": "03-vector-store/chroma_db",  #  持久化数据库的路径， 对应 MILVUS_CONFIG 的 uri
     "collection_metadata": { 
@@ -41,4 +42,3 @@ CHROMA_CONFIG = {
         "default": {}  #  自定义 embedding function  通常无需配置参数，  保留空字典
     }
 } 
-

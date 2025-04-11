@@ -31,10 +31,23 @@ const Indexing = () => {
       modes: ['hnsw', 'flat']
     },
     chroma: {
-      modes: ['hnsw', 'standard']
+      modes: ['hnsw']
     },
     faiss: {
       modes: ['flat', 'ivf', 'hnsw']
+    }
+  };
+
+  // 添加索引模式的描述信息
+  const indexModeDescriptions = {
+    milvus: {
+      flat: 'Brute-force search, high accuracy but slower',
+      ivf_flat: 'IVF index with exact distance computation',
+      ivf_sq8: 'IVF index with scalar quantization',
+      hnsw: 'Hierarchical NSW, fast approximate search'
+    },
+    chroma: {
+      hnsw: 'Hierarchical Navigable Small World graph index'
     }
   };
 
@@ -44,8 +57,13 @@ const Indexing = () => {
   }, []);
 
   useEffect(() => {
-    // 当数据库改变时，重置索引模式为该数据库的第一个可用模式
-    setIndexMode(dbConfigs[vectorDb].modes[0]);
+    if (vectorDb === 'chroma') {
+      setIndexMode('hnsw');  // Chroma 只使用 HNSW
+      setSelectedProvider('chroma');
+    } else if (dbConfigs[vectorDb]?.modes?.length > 0) {
+      setIndexMode(dbConfigs[vectorDb].modes[0]);
+      setSelectedProvider(vectorDb);
+    }
   }, [vectorDb]);
 
   useEffect(() => {
@@ -54,7 +72,12 @@ const Indexing = () => {
         // 获取providers列表
         const providersResponse = await fetch(`${apiBaseUrl}/providers`);
         const providersData = await providersResponse.json();
-        setProviders(providersData.providers);
+        // 确保 Chroma 在providers列表中
+        const allProviders = [
+          ...providersData.providers,
+          { id: 'chroma', name: 'Chroma' }
+        ];
+        setProviders(allProviders);
 
         // 获取collections列表
         const collectionsResponse = await fetch(`${apiBaseUrl}/collections?provider=${selectedProvider}`);
@@ -174,6 +197,19 @@ const Indexing = () => {
     }
   };
 
+  const handleVectorDbChange = (e) => {
+    const newVectorDb = e.target.value;
+    setVectorDb(newVectorDb);
+    setSelectedProvider(newVectorDb);
+    
+    // 立即更新索引模式
+    if (newVectorDb === 'chroma') {
+      setIndexMode('hnsw');
+    } else if (dbConfigs[newVectorDb]?.modes?.length > 0) {
+      setIndexMode(dbConfigs[newVectorDb].modes[0]);
+    }
+  };
+
   return (
     <div className="p-6">
       <h2 className="text-2xl font-bold mb-6">Vector Database Indexing</h2>
@@ -203,8 +239,8 @@ const Indexing = () => {
             <div>
               <label className="block text-sm font-medium mb-1">Vector Database</label>
               <select
-                value={selectedProvider}
-                onChange={(e) => setSelectedProvider(e.target.value)}
+                value={vectorDb}
+                onChange={handleVectorDbChange}
                 className="block w-full p-2 border rounded"
               >
                 {providers.map(provider => (
@@ -222,13 +258,19 @@ const Indexing = () => {
                 value={indexMode}
                 onChange={(e) => setIndexMode(e.target.value)}
                 className="block w-full p-2 border rounded"
+                disabled={vectorDb === 'chroma'}
               >
-                {dbConfigs[vectorDb].modes.map(mode => (
+                {dbConfigs[vectorDb]?.modes.map(mode => (
                   <option key={mode} value={mode}>
                     {mode.toUpperCase()}
                   </option>
                 ))}
               </select>
+              {vectorDb === 'chroma' && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Chroma uses HNSW index by default
+                </p>
+              )}
             </div>
 
             {/* Action Buttons and Collection Management */}

@@ -11,7 +11,7 @@ from services.search_service import SearchService
 from services.parsing_service import ParsingService
 import logging
 from enum import Enum
-from utils.config import VectorDBProvider
+from utils.config import VectorDBProvider, MILVUS_CONFIG, CHROMA_CONFIG
 import pandas as pd
 from pathlib import Path
 from services.generation_service import GenerationService
@@ -37,6 +37,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 在 VectorDBProvider 枚举类中添加 CHROMA
+class VectorDBProvider(str, Enum):
+    MILVUS = "milvus"
+    CHROMA = "chroma"  # 添加 Chroma 支持
+
+# 在 utils/config.py 中添加 CHROMA_CONFIG
+CHROMA_CONFIG = {
+    "persist_directory": "chroma_db",
+    "collection_metadata": {
+        "hnsw_space": "cosine",
+        "hnsw:M": 8,
+        "hnsw:ef_construction": 100,
+        "hnsw:ef": 10
+    }
+}
 
 @app.post("/process")
 async def process_file(

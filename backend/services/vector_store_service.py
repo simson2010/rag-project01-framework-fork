@@ -3,11 +3,20 @@ from datetime import datetime
 import json
 from typing import List, Dict, Any
 import logging
-from chromadb.config import Settings
-from utils.config import VectorDBProvider, CHROMA_CONFIG
 import hashlib
+from pathlib import Path
+from pymilvus import connections, utility
+from pymilvus import Collection, DataType, FieldSchema, CollectionSchema
+from utils.config import VectorDBProvider, MILVUS_CONFIG, CHROMA_CONFIG  # Updated import
+import chromadb
+from chromadb.config import Settings
 
 logger = logging.getLogger(__name__)
+
+# 修改 CHROMA_CONFIG 配置
+CHROMA_CONFIG = {
+    "persist_directory": "chroma_db"
+}
 
 class VectorDBConfig:
     """
@@ -38,13 +47,95 @@ class VectorStoreService:
     def __init__(self):
         os.makedirs("03-vector-store", exist_ok=True)
     
+    def _get_milvus_index_type(self, config: VectorDBConfig) -> str:
+        return config._get_milvus_index_type(config.index_mode)
+    
+    def _get_milvus_index_params(self, config: VectorDBConfig) -> Dict[str, Any]:
+        return config._get_milvus_index_params(config.index_mode)
+    
+    def _init_chroma_client(self):
+        client = chromadb.Client(Settings(
+            persist_directory=CHROMA_CONFIG["persist_directory"],
+            anonymized_telemetry=False
+        ))
+        return client
+    
+    def _index_to_chroma(self, embeddings_data: Dict[str, Any], config: VectorDBConfig) -> Dict[str, Any]:
+        try:
+            start_time = datetime.now()
+            
+            # 初始化 Chroma 客户端
+            client = self._init_chroma_client()
+            
+            # 创建或获取集合
+            collection_name = f"collection_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            # 创建集合，使用简单的 metadata
+            collection = client.create_collection(
+                name=collection_name,
+                metadata={
+                    "description": "Document embeddings collection",
+                    "created_at": datetime.now().isoformat()
+                }
+            )
+            
+            # 准备数据
+            ids = []
+            embeddings = []
+            metadatas = []
+            documents = []
+            
+            for idx, emb in enumerate(embeddings_data["embeddings"]):
+                ids.append(str(idx))
+                embeddings.append(emb["embedding"])
+                # 确保 metadata 中只包含简单类型
+                metadatas.append({
+                    "content": str(emb["metadata"].get("content", "")),
+                    "page_number": str(emb["metadata"].get("page_number", "")),
+                    "chunk_id": str(emb["metadata"].get("chunk_id", "")),
+                    "document_name": str(embeddings_data.get("filename", "")),
+                    "embedding_model": str(embeddings_data.get("embedding_model", "")),
+                    "embedding_provider": str(embeddings_data.get("embedding_provider", ""))
+                })
+                documents.append(str(emb["metadata"].get("content", "")))
+            
+            # 添加数据到集合
+            collection.add(
+                ids=ids,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                documents=documents
+            )
+            
+            end_time = datetime.now()
+            processing_time = (end_time - start_time).total_seconds()
+            
+            return {
+                "index_size": len(ids),
+                "collection_name": collection_name,
+                "processing_time": processing_time
+            }
+            
+        except Exception as e:
+            logger.error(f"Error indexing to Chroma: {str(e)}")
+            raise
+
+
     def index_embeddings(self, embedding_file: str, config: VectorDBConfig) -> Dict[str, Any]:
         """
         将嵌入向量索引到 ChromaDB
         """
         start_time = datetime.now()
         embeddings_data = self._load_embeddings(embedding_file)
-        result = self._index_to_chroma(embeddings_data, config)
+        
+        # 根据不同的数据库进行索引
+        if config.provider == VectorDBProvider.MILVUS:
+            result = self._index_to_milvus(embeddings_data, config)
+        elif config.provider == VectorDBProvider.CHROMA:
+            result = self._index_to_chroma(embeddings_data, config)
+        
+        end_time = datetime.now()
+        processing_time = (end_time - start_time).total_seconds()
         
         return {
             "database": config.provider,
