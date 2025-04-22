@@ -3,9 +3,16 @@ import React, { useState, useEffect } from 'react';
 import RandomImage from '../components/RandomImage';
 import { apiBaseUrl } from '../config/config';
 
+// Define available loading methods for each file type
+const loadingMethodsByFileType = {
+  pdf: ['PyMuPdf', 'PyPdf', 'Unstructured'],
+  txt: ['PureText', 'TextLoader'], // Assuming 'puretxt' and 'TextLoader' are valid backend methods for TXT
+  word: ['PythonDocx'], // Assuming 'pythondocx' is a valid backend method for WORD
+};
+
 const LoadFile = () => {
   const [file, setFile] = useState(null);
-  const [loadingMethod, setLoadingMethod] = useState('pymupdf');
+  const [loadingMethod, setLoadingMethod] = useState(loadingMethodsByFileType['pdf'][0]);
   const [unstructuredStrategy, setUnstructuredStrategy] = useState('fast');
   const [chunkingStrategy, setChunkingStrategy] = useState('basic');
   const [chunkingOptions, setChunkingOptions] = useState({
@@ -21,10 +28,37 @@ const LoadFile = () => {
   const [documents, setDocuments] = useState([]);
   const [activeTab, setActiveTab] = useState('preview'); // 'preview' 或 'documents'
   const [selectedDoc, setSelectedDoc] = useState(null);
+  const [fileType, setFileType] = useState('pdf'); // State for selected file type
+  const [availableLoadingMethods, setAvailableLoadingMethods] = useState(loadingMethodsByFileType['pdf']); // State for available methods
 
   useEffect(() => {
     fetchDocuments();
   }, []);
+
+  // Effect to update loading methods when fileType changes
+  useEffect(() => {
+    const methods = loadingMethodsByFileType[fileType] || [];
+    setAvailableLoadingMethods(methods);
+    // Set the loading method to the first available method for the new file type
+    if (methods.length > 0) {
+      setLoadingMethod(methods[0]);
+    } else {
+      setLoadingMethod(''); // Or handle case with no methods
+    }
+    // Reset unstructured options if file type is not PDF
+    if (fileType !== 'pdf') {
+        setUnstructuredStrategy('fast');
+        setChunkingStrategy('basic');
+        setChunkingOptions({
+            maxCharacters: 4000,
+            newAfterNChars: 3000,
+            combineTextUnderNChars: 500,
+            overlap: 200,
+            overlapAll: false,
+            multiPageSections: false
+        });
+    }
+  }, [fileType]); // Dependency array: run this effect when fileType changes
 
   const fetchDocuments = async () => {
     try {
@@ -49,8 +83,9 @@ const LoadFile = () => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('loading_method', loadingMethod);
+      formData.append('file_type', fileType); // Add selected file type to form data
       
-      if (loadingMethod === 'unstructured') {
+      if (fileType === 'pdf' && loadingMethod === 'unstructured') {
         formData.append('strategy', unstructuredStrategy);
         formData.append('chunking_strategy', chunkingStrategy);
         formData.append('chunking_options', JSON.stringify(chunkingOptions));
@@ -236,13 +271,48 @@ const LoadFile = () => {
         <div className="col-span-3 space-y-4">
           <div className="p-4 border rounded-lg bg-white shadow-sm">
             <div>
-              <label className="block text-sm font-medium mb-1">Upload PDF</label>
+              <label className="block text-sm font-medium mb-1">Upload File</label>
               <input
                 type="file"
-                accept=".pdf"
                 onChange={(e) => setFile(e.target.files[0])}
                 className="block w-full border rounded px-3 py-2"
               />
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">File Type</label>
+              <div className="flex space-x-4">
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    value="pdf"
+                    checked={fileType === 'pdf'}
+                    onChange={(e) => setFileType(e.target.value)}
+                    className="form-radio"
+                  />
+                  <span className="ml-2 text-sm">PDF</span>
+                </label>
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    value="txt"
+                    checked={fileType === 'txt'}
+                    onChange={(e) => setFileType(e.target.value)}
+                    className="form-radio"
+                  />
+                  <span className="ml-2 text-sm">TXT</span>
+                </label>
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    value="word"
+                    checked={fileType === 'word'}
+                    onChange={(e) => setFileType(e.target.value)}
+                    className="form-radio"
+                  />
+                  <span className="ml-2 text-sm">WORD</span>
+                </label>
+              </div>
             </div>
 
             <div className="mt-4">
@@ -252,13 +322,13 @@ const LoadFile = () => {
                 onChange={(e) => setLoadingMethod(e.target.value)}
                 className="block w-full p-2 border rounded"
               >
-                <option value="pymupdf">PyMuPDF</option>
-                <option value="pypdf">PyPDF</option>
-                <option value="unstructured">Unstructured</option>
+                {availableLoadingMethods.map(method => (
+                  <option key={method} value={method}>{method}</option>
+                ))}
               </select>
             </div>
 
-            {loadingMethod === 'unstructured' && (
+            {fileType === 'pdf' && loadingMethod === 'unstructured' && (
               <>
                 <div className="mt-4">
                   <label className="block text-sm font-medium mb-1">Unstructured Strategy</label>

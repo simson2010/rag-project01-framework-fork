@@ -27,6 +27,7 @@ app = FastAPI()
 os.makedirs("temp", exist_ok=True)
 os.makedirs("01-chunked-docs", exist_ok=True)
 os.makedirs("02-embedded-docs", exist_ok=True)
+os.makedirs("01-loaded-docs", exist_ok=True)
 
 # Configure CORS
 app.add_middleware(
@@ -82,7 +83,7 @@ async def process_file(
         return {"chunks": chunks}
     except Exception as e:
         logger.error(f"Error processing file: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/save")
 async def save_chunks(data: dict):
@@ -132,7 +133,7 @@ async def list_documents():
                     doc_data = json.load(f)
                     docs.append({
                         "id": filename,
-                        "name": doc_data["document_name"]
+                        "name": doc_data.get("document_name", filename)
                     })
         return {"documents": docs}
     except Exception as e:
@@ -588,7 +589,7 @@ async def parse_file(
         return {"parsed_content": parsed_content}
     except Exception as e:
         logger.error(f"Error parsing file: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/load")
 async def load_file(
@@ -596,63 +597,70 @@ async def load_file(
     loading_method: str = Form(...),
     strategy: str = Form(None),
     chunking_strategy: str = Form(None),
-    chunking_options: str = Form(None)
+    chunking_options: str = Form(None),
+    file_type: str = Form(...)
 ):
     try:
+        #change to lowcase
+        loading_method = loading_method.lower()
         # 保存上传的文件
         temp_path = os.path.join("temp", file.filename)
         with open(temp_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
         
-        # 准备元数据
-        metadata = {
-            "filename": file.filename,
-            "total_chunks": 0,  # 将在后面更新
-            "total_pages": 0,   # 将在后面更新
-            "loading_method": loading_method,
-            "loading_strategy": strategy,  
-            "chunking_strategy": chunking_strategy, 
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        # Parse chunking options if provided
+        # Parse chunking options if provided (for unstructured PDF)
         chunking_options_dict = None
         if chunking_options:
-            chunking_options_dict = json.loads(chunking_options)
+            try:
+                chunking_options_dict = json.loads(chunking_options)
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to decode chunking_options JSON: {chunking_options}")
+                chunking_options_dict = {} # Use empty dict on error
         
-        # 使用 LoadingService 加载文档
+        # Use LoadingService to load the document based on file_type
         loading_service = LoadingService()
-        raw_text = loading_service.load_pdf(
-            temp_path, 
-            loading_method, 
+        page_map = loading_service.load_document(
+            temp_path,
+            file_type=file_type,
+            method=loading_method,
             strategy=strategy,
             chunking_strategy=chunking_strategy,
             chunking_options=chunking_options_dict
         )
         
-        metadata["total_pages"] = loading_service.get_total_pages()
+        # Calculate total pages and chunks from the returned page_map
+        total_pages = loading_service.get_total_pages()
         
-        page_map = loading_service.get_page_map()
-        
-        # 转换成标准化的chunks格式
+        # Transform page_map into the standardized chunks format expected by save_document
         chunks = []
-        for idx, page in enumerate(page_map, 1):
+        for idx, item in enumerate(page_map, 1):
             chunk_metadata = {
                 "chunk_id": idx,
-                "page_number": page["page"],
-                "page_range": str(page["page"]),
-                "word_count": len(page["text"].split())
+                "page_number": item.get('page', 1),
+                "page_range": str(item.get('page', 1)),
+                "word_count": len(item.get('text', '').split()),
+                **item.get('metadata', {})
             }
-            if "metadata" in page:
-                chunk_metadata.update(page["metadata"])
             
             chunks.append({
-                "content": page["text"],
+                "content": item.get('text', ''),
                 "metadata": chunk_metadata
             })
         
-        # 使用 LoadingService 保存文档，传递strategy参数
+        # Prepare metadata for saving
+        metadata = {
+            "filename": file.filename,
+            "total_chunks": len(chunks),
+            "total_pages": total_pages,
+            "loading_method": loading_method,
+            "file_type": file_type,
+            "loading_strategy": strategy,
+            "chunking_strategy": chunking_strategy,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Use LoadingService to save the document
         filepath = loading_service.save_document(
             filename=file.filename,
             chunks=chunks,
@@ -662,7 +670,7 @@ async def load_file(
             chunking_strategy=chunking_strategy,
         )
         
-        # 读取保存的文档以返回
+        # Read the saved document to return (optional, could return data directly)
         with open(filepath, "r", encoding="utf-8") as f:
             document_data = json.load(f)
         
@@ -672,7 +680,10 @@ async def load_file(
         return {"loaded_content": document_data, "filepath": filepath}
     except Exception as e:
         logger.error(f"Error loading file: {str(e)}")
-        raise
+        # Clean up temp file if it exists
+        if os.path.exists(temp_path):
+             os.remove(temp_path)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chunk")
 async def chunk_document(data: dict = Body(...)):
