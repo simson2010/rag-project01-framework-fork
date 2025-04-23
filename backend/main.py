@@ -39,6 +39,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+loading_service = LoadingService()
+chunking_service = ChunkingService()
+
 @app.post("/process")
 async def process_file(
     file: UploadFile = File(...),
@@ -619,7 +622,7 @@ async def load_file(
                 chunking_options_dict = {} # Use empty dict on error
         
         # Use LoadingService to load the document based on file_type
-        loading_service = LoadingService()
+        
         page_map = loading_service.load_document(
             temp_path,
             file_type=file_type,
@@ -697,54 +700,20 @@ async def chunk_document(data: dict = Body(...)):
                 status_code=400, 
                 detail="Missing required parameters: doc_id and chunking_option"
             )
-        
-        # 读取已加载的文档
-        file_path = os.path.join("01-loaded-docs", doc_id)
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="Document not found")
-            
-        with open(file_path, 'r', encoding='utf-8') as f:
-            doc_data = json.load(f)
-            
-        # 构建页面映射
-        page_map = [
-            {
-                'page': chunk['metadata']['page_number'],
-                'text': chunk['content']
-            }
-            for chunk in doc_data['chunks']
-        ]
-            
-        # 准备元数据
-        metadata = {
-            "filename": doc_data['filename'],
-            "loading_method": doc_data['loading_method'],
-            "total_pages": doc_data['total_pages']
-        }
-            
-        chunking_service = ChunkingService()
+
+        chunking_service.load_file_with_id(doc_id)
+
         result = chunking_service.chunk_text(
-            text="",  # 不需要传递文本，因为我们使用 page_map
+            text="",
             method=chunking_option,
-            metadata=metadata,
-            page_map=page_map,
             chunk_size=chunk_size
         )
-        
-        # 生成输出文件名
-        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        base_name = doc_data['filename'].replace('.pdf', '').split('_')[0]
-        output_filename = f"{base_name}_{chunking_option}_{timestamp}.json"
-        
-        output_path = os.path.join("01-chunked-docs", output_filename)
-        os.makedirs("01-chunked-docs", exist_ok=True)
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
-        
-        return result
-        
-    except Exception as e:
+
+        return result 
+    except Exception as e:        
+        if e.status_code == 10404:
+            logger.error(f"Error loading document: {str(e)}")
+            raise HTTPException(status_code=404, detail=str(e))
         logger.error(f"Error chunking document: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 

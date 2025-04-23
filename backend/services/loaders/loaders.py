@@ -169,24 +169,40 @@ class TXTLoader(BaseLoader):
         Load TXT file. Treats each line as a chunk on page 1.
         Returns a list of dictionaries: [{"text": ..., "page": 1, "metadata": {}}]
         """
+        readlines = 0
+        onePage = ""
         text_blocks = []
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                # Read line by line, treating each non-empty line as a block
+            # 尝试打开文件，如果文件不存在或无法读取，将抛出异常
+            with open(file_path, 'r', encoding='utf-8-sig') as f:
+                # 逐行读取文件
                 for line_num, line in enumerate(f, 1):
+                    readlines += 1
                     line = line.strip()
-                    if line:
-                         text_blocks.append({
-                            "text": line,
-                            "page": 1, # Treat all lines as page 1 for simplicity
+                    onePage += line 
+                    if readlines == 10 and len(onePage) >= 1:  # 如果行非空
+                        text_blocks.append({
+                            "text": onePage,
+                            "page": 1,  # 假设所有行都在第一页
                             "metadata": {"line_number": line_num}
                         })
+                        readlines = 0
+                        onePage = ""
+            # 更新页面映射和总页数
             self._page_map = text_blocks
-            self._total_pages = 1 if text_blocks else 0 # A TXT file is one "page" conceptually here
+            self._total_pages = 1 if text_blocks else 0  # TXT文件在这里被视为一个“页面”
             return self._page_map
-        except Exception as e:
-            logger.error(f"Error loading TXT file {file_path}: {str(e)}")
+
+        except FileNotFoundError:
+            logger.error(f"The file {file_path} was not found.")
             raise
+        except IOError as e:
+            logger.error(f"IOError occurred while reading the file {file_path}: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while loading TXT file {file_path}: {str(e)}")
+            raise
+
 
 class DOCXLoader(BaseLoader):
     """Loader for DOCX files."""
