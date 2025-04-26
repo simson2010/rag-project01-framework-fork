@@ -7,6 +7,9 @@ import os
 from datetime import datetime
 import json
 from pathlib import Path # Import Path for better path handling
+import docx
+import markdown
+import re
 
 from .loaders.loaders import PDFLoader, TXTLoader, DOCXLoader, BaseLoader # Import the new loaders
 
@@ -167,3 +170,87 @@ class LoadingService:
         except Exception as e:
             logger.error(f"Error saving document: {str(e)}")
             raise
+
+    def load_file(self, file_path: str, loading_method: str) -> str:
+        """
+        加载文件并返回其文本内容。
+        支持的文件类型：PDF, TXT, MD, DOCX
+        
+        Args:
+            file_path (str): 文件路径
+            
+        Returns:
+            str: 文件内容文本
+            
+        Raises:
+            ValueError: 不支持的文件类型
+            FileNotFoundError: 文件不存在
+        """
+        try:
+            file_path = Path(file_path)
+            if not file_path.exists():
+                raise FileNotFoundError(f"文件不存在: {file_path}")
+                
+            file_extension = file_path.suffix.lower()
+            
+            if file_extension == '.pdf':
+                return _load_pdf(file_path)
+            elif file_extension == '.txt':
+                return _load_txt(file_path)
+            elif file_extension == '.md':
+                return _load_markdown(file_path)
+            elif file_extension in ['.docx', '.doc']:
+                return _load_docx(file_path)
+            else:
+                raise ValueError(f"不支持的文件类型: {file_extension}")
+                
+        except Exception as e:
+            logger.error(f"加载文件时出错 {file_path}: {str(e)}")
+            raise
+
+def _load_pdf(file_path: Path) -> str:
+    """加载PDF文件"""
+    try:
+        reader = PdfReader(file_path)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text.strip()
+    except Exception as e:
+        logger.error(f"加载PDF文件失败 {file_path}: {str(e)}")
+        raise
+
+def _load_txt(file_path: Path) -> str:
+    """加载TXT文件"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except Exception as e:
+        logger.error(f"加载TXT文件失败 {file_path}: {str(e)}")
+        raise
+
+def _load_markdown(file_path: Path) -> str:
+    """加载Markdown文件"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            # 将Markdown转换为纯文本
+            html = markdown.markdown(content)
+            # 移除HTML标签
+            text = re.sub(r'<[^>]+>', '', html)
+            return text.strip()
+    except Exception as e:
+        logger.error(f"加载Markdown文件失败 {file_path}: {str(e)}")
+        raise
+
+def _load_docx(file_path: Path) -> str:
+    """加载Word文档"""
+    try:
+        doc = docx.Document(file_path)
+        text = ""
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
+        return text.strip()
+    except Exception as e:
+        logger.error(f"加载Word文档失败 {file_path}: {str(e)}")
+        raise

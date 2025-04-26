@@ -570,14 +570,17 @@ async def parse_file(
 ):
     try:
         # Save uploaded file
-        temp_path = os.path.join("temp", file.filename)
+        fileName = getPinYinFilename(file.filename)
+
+        temp_path = os.path.join("temp", fileName)
         with open(temp_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
         
         # Prepare metadata
         metadata = {
-            "filename": file.filename,
+            "filename": fileName,
+            "originFilename": file.filename,
             "loading_method": loading_method,
             "original_file_size": len(content),
             "processing_date": datetime.now().isoformat(),
@@ -585,11 +588,16 @@ async def parse_file(
         }
         
         loading_service = LoadingService()
-        raw_text = loading_service.load_pdf(temp_path, loading_method)
+        raw_text = loading_service.load_file(temp_path, loading_method)
+        
+        page_map = loading_service.load_document(
+            temp_path,
+            file_type="pdf",
+            method=loading_method
+        )
+
         metadata["total_pages"] = loading_service.get_total_pages()
-        
-        page_map = loading_service.get_page_map()
-        
+
         parsing_service = ParsingService()
         parsed_content = parsing_service.parse_pdf(
             raw_text, 
@@ -601,6 +609,38 @@ async def parse_file(
         # Clean up temp file
         os.remove(temp_path)
         
+        print(parsed_content['content'][0])
+        chunks = []
+        for idx, item in enumerate(parsed_content['content'], 1):
+            chunk_metadata = {
+                "chunk_id": idx,
+                "page_number": item.get('page', 1),
+                "page_range": str(item.get('page', 1)),
+                "word_count": len(item.get('content', '').split()),
+                **item.get('metadata', {})
+            }
+            
+            chunks.append({
+                "content": item.get('content', ''),
+                "metadata": chunk_metadata
+            })
+        
+        metadata = parsed_content.get('metadata', {})
+        metadata["originFilename"] = file.filename
+        metadata["total_chunks"] = len(chunks)
+        metadata['loading_method'] = loading_method
+        metadata['file_type'] = 'pdf'
+        metadata['loading_strategy'] = None
+        metadata['chunking_strategy'] = parsing_option
+     
+        # Use LoadingService to save the document
+        filepath = loading_service.save_document(
+            filename=fileName,
+            chunks=chunks,
+            metadata=metadata,
+            loading_method=loading_method
+        )
+
         return {"parsed_content": parsed_content}
     except Exception as e:
         logger.error(f"Error parsing file: {str(e)}")

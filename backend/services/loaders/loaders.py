@@ -7,6 +7,7 @@ import pdfplumber
 import fitz  # PyMuPDF
 import docx # python-docx
 import logging
+import json 
 import os
 
 logger = logging.getLogger(__name__)
