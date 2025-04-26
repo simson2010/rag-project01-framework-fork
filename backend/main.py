@@ -16,6 +16,8 @@ import pandas as pd
 from pathlib import Path
 from services.generation_service import GenerationService
 from typing import List, Dict, Optional
+import re 
+from pypinyin import pinyin, Style
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -41,6 +43,16 @@ app.add_middleware(
 
 loading_service = LoadingService()
 chunking_service = ChunkingService()
+
+def getPinYinFilename(fileName: str) -> str:
+    """
+    将文件名转换为拼音，并将中文标点符号替换为英文下划线。
+    """
+    # 将中文标点符号替换为下划线
+    fileName = re.sub(r'[\u3002\uff1f\uff01\uff0c\uff1b\uff1a\uff08\uff09\u201c\u201d\u2018\u2019\uff0e\u3001\u3010\u3011\u3008\u3009]+', '_', fileName)
+    
+    pinyin_list = pinyin(fileName, style=Style.NORMAL)
+    return ''.join([item[0] for item in pinyin_list])
 
 @app.post("/process")
 async def process_file(
@@ -607,7 +619,10 @@ async def load_file(
         #change to lowcase
         loading_method = loading_method.lower()
         # 保存上传的文件
-        temp_path = os.path.join("temp", file.filename)
+        fileName = getPinYinFilename(file.filename)
+        print(f"PinYin FileName: {fileName}")
+        temp_path = os.path.join("temp", fileName)
+        print(f"temp path:{temp_path}")
         with open(temp_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
@@ -653,7 +668,8 @@ async def load_file(
         
         # Prepare metadata for saving
         metadata = {
-            "filename": file.filename,
+            "filename": fileName,
+            "originFilename": file.filename,
             "total_chunks": len(chunks),
             "total_pages": total_pages,
             "loading_method": loading_method,
@@ -665,7 +681,7 @@ async def load_file(
         
         # Use LoadingService to save the document
         filepath = loading_service.save_document(
-            filename=file.filename,
+            filename=fileName,
             chunks=chunks,
             metadata=metadata,
             loading_method=loading_method,

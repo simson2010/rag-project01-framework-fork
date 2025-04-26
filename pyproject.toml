@@ -177,6 +177,7 @@ dependencies = [
     "pypdf==4.3.1",
     "pypdfium2==4.30.0",
     "pypika==0.48.9",
+    "pypinyin>=0.54.0",
     "pyproject-hooks==1.1.0",
     "python-dateutil==2.9.0.post0",
     "python-docx>=1.1.2",

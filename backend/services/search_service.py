@@ -9,17 +9,20 @@ import json
 
 logger = logging.getLogger(__name__)
 
+_embedding_service = EmbeddingService()
+
 class SearchService:
     """
     搜索服务类，负责向量数据库的连接和向量搜索功能
     提供集合列表查询、向量相似度搜索和搜索结果保存等功能
     """
     def __init__(self):
+        global _embedding_service
         """
         初始化搜索服务
         创建嵌入服务实例，设置Milvus连接URI，初始化搜索结果保存目录
         """
-        self.embedding_service = EmbeddingService()
+        self.embedding_service = _embedding_service
         self.milvus_uri = MILVUS_CONFIG["uri"]
         self.search_results_dir = "04-search-results"
         os.makedirs(self.search_results_dir, exist_ok=True)

@@ -152,6 +152,26 @@ const LoadFile = () => {
     }
   };
 
+  // 添加处理文件上传的函数
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    setFile(selectedFile);
+    
+    if (selectedFile) {
+      const fileExtension = selectedFile.name.split('.').pop().toLowerCase();
+      // 根据文件后缀名设置文件类型
+      if (fileExtension === 'pdf') {
+        setFileType('pdf');
+      } else if (fileExtension === 'txt') {
+        setFileType('txt');
+      } else if (fileExtension === 'docx' || fileExtension === 'doc') {
+        setFileType('word');
+      }
+      // 更新可用的加载方法
+      setAvailableLoadingMethods(loadingMethodsByFileType[fileType]);
+    }
+  };
+
   const renderRightPanel = () => {
     return (
       <div className="p-4">
@@ -274,7 +294,7 @@ const LoadFile = () => {
               <label className="block text-sm font-medium mb-1">Upload File</label>
               <input
                 type="file"
-                onChange={(e) => setFile(e.target.files[0])}
+                onChange={handleFileChange}
                 className="block w-full border rounded px-3 py-2"
               />
             </div>

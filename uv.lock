@@ -3137,6 +3137,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c7/2c/94ed7b91db81d61d7096ac8f2d325ec562fc75e35f3baea8749c85b28784/PyPika-0.48.9.tar.gz", hash = "sha256:838836a61747e7c8380cd1b7ff638694b7a7335345d0f559b04b2cd832ad5378", size = 67259 }
 
 [[package]]
+name = "pypinyin"
+version = "0.54.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/7f/81cb5416ddacfeccca8eeedcd3543a72b093b26d9c4ca7bde8beea733e4e/pypinyin-0.54.0.tar.gz", hash = "sha256:9ab0d07ff51d191529e22134a60e109d0526d80b7a80afa73da4c89521610958", size = 837455 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/ec/2c04ac863e7a85bb68b0b655cec2f19853d51d305ce3d785848db6037b8d/pypinyin-0.54.0-py2.py3-none-any.whl", hash = "sha256:5f776f19b9fd922e4121a114810b22048d90e6e8037fb1c07f4c40f987ae6e7a", size = 837012 },
+]
+
+[[package]]
 name = "pyproject-hooks"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3537,6 +3546,7 @@ dependencies = [
     { name = "pypdf" },
     { name = "pypdfium2" },
     { name = "pypika" },
+    { name = "pypinyin" },
     { name = "pyproject-hooks" },
     { name = "python-dateutil" },
     { name = "python-docx" },
@@ -3777,6 +3787,7 @@ requires-dist = [
     { name = "pypdf", specifier = "==4.3.1" },
     { name = "pypdfium2", specifier = "==4.30.0" },
     { name = "pypika", specifier = "==0.48.9" },
+    { name = "pypinyin", specifier = ">=0.54.0" },
     { name = "pyproject-hooks", specifier = "==1.1.0" },
     { name = "python-dateutil", specifier = "==2.9.0.post0" },
     { name = "python-docx", specifier = ">=1.1.2" },

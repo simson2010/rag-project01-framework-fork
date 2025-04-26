@@ -237,12 +237,16 @@ class EmbeddingService:
         except Exception as e:
             raise ValueError(f"Error getting embedding config: {str(e)}")
 
+_last_provider = None 
+_last_provider_name = ""
+
 class EmbeddingFactory:
     """
     嵌入工厂类，负责创建不同提供商的嵌入函数
     """
     @staticmethod
     def create_embedding_function(config: EmbeddingConfig):
+        global _last_provider_name, _last_provider
         """
         根据配置创建嵌入函数
         
@@ -255,6 +259,9 @@ class EmbeddingFactory:
         异常:
             ValueError: 当提供商不支持时抛出
         """
+        if _last_provider_name == config.provider and _last_provider != None:
+            return _last_provider
+        
         if config.provider == EmbeddingProvider.BEDROCK:
             bedrock_client = boto3.client(
                 service_name='bedrock-runtime',
@@ -262,20 +269,23 @@ class EmbeddingFactory:
                 aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
                 aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
             )
-            return BedrockEmbeddings(
+            _last_provider = BedrockEmbeddings(
                 client=bedrock_client,
                 model_id=config.model_name
             )
+            return _last_provider
             
         elif config.provider == EmbeddingProvider.OPENAI:
-            return OpenAIEmbeddings(
+            _last_provider = OpenAIEmbeddings(
                 model=config.model_name,
                 openai_api_key=os.getenv('OPENAI_API_KEY')
             )
+            return _last_provider
             
         elif config.provider == EmbeddingProvider.HUGGINGFACE:
-            return HuggingFaceEmbeddings(
+            _last_provider = HuggingFaceEmbeddings(
                 model_name=config.model_name
             )
+            return _last_provider
             
         raise ValueError(f"Unsupported embedding provider: {config.provider}")

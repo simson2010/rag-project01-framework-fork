@@ -160,10 +160,9 @@ class VectorStoreService:
             filename = embeddings_data.get("filename", "")
             # 如果有 .pdf 后缀，移除它
             base_name = filename.replace('.pdf', '') if filename else "doc"
-            
-            # Ensure the collection name starts with a letter or underscore
-            if not base_name[0].isalpha() and base_name[0] != '_':
-                base_name = f"_{base_name}"
+            import re
+            base_name = re.sub(r'[^a-zA-Z]+', '_', base_name)
+            base_name = f"_{base_name}"
             
             # Get embedding provider
             embedding_provider = embeddings_data.get("embedding_provider", "unknown")

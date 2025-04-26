@@ -1,6 +1,8 @@
 # backend/services/loaders.py
 from pypdf import PdfReader
 from unstructured.partition.pdf import partition_pdf
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import CharacterTextSplitter
 import pdfplumber
 import fitz  # PyMuPDF
 import docx # python-docx
@@ -164,30 +166,20 @@ class PDFLoader(BaseLoader):
 class TXTLoader(BaseLoader):
     """Loader for TXT files."""
 
-    def load(self, file_path: str, **kwargs) -> list:
+    def load(self, method: str, file_path: str, **kwargs) -> list:
         """
         Load TXT file. Treats each line as a chunk on page 1.
         Returns a list of dictionaries: [{"text": ..., "page": 1, "metadata": {}}]
         """
-        readlines = 0
-        onePage = ""
         text_blocks = []
         try:
-            # 尝试打开文件，如果文件不存在或无法读取，将抛出异常
-            with open(file_path, 'r', encoding='utf-8-sig') as f:
-                # 逐行读取文件
-                for line_num, line in enumerate(f, 1):
-                    readlines += 1
-                    line = line.strip()
-                    onePage += line 
-                    if readlines == 10 and len(onePage) >= 1:  # 如果行非空
-                        text_blocks.append({
-                            "text": onePage,
-                            "page": 1,  # 假设所有行都在第一页
-                            "metadata": {"line_number": line_num}
-                        })
-                        readlines = 0
-                        onePage = ""
+            if method == "puretext":
+                text_blocks = self._load_plain_text_using_reader(file_path)
+            elif method == "textloader":
+                text_blocks = self._load_plain_text_using_textLoader(file_path)
+            else:
+                logger.error("No loading method found in paramters!")
+                raise
             # 更新页面映射和总页数
             self._page_map = text_blocks
             self._total_pages = 1 if text_blocks else 0  # TXT文件在这里被视为一个“页面”
@@ -203,6 +195,49 @@ class TXTLoader(BaseLoader):
             logger.error(f"An unexpected error occurred while loading TXT file {file_path}: {str(e)}")
             raise
 
+    def _load_plain_text_using_textLoader(self, file_path: str) -> list:
+        loader = TextLoader(file_path)
+        documents = loader.load()
+        documents[0].page_content = documents[0].page_content.replace("\n\xa0\n","\n\n")
+        text_splitter = CharacterTextSplitter(
+            chunk_size=200,  # 每个文本块的大小为100个字符, 中文字要除以2
+            chunk_overlap=60,  # 文本块之间没有重叠部分
+        )
+        chunks = text_splitter.split_documents(documents)
+        print(len(chunks), chunks[::-1])
+        text_blocks = []
+        for chunk in chunks:
+            text_blocks.append({
+                "text": chunk.page_content,
+                "page": 1,
+                "metadata": {
+                    "line_number": 0,
+                    "len_of_text": len(chunk.page_content)
+                }
+            })
+
+        return text_blocks
+
+    def _load_plain_text_using_reader(self, file_path: str) -> list:
+        readlines = 0
+        onePage = ""
+        text_blocks = []
+        # 尝试打开文件，如果文件不存在或无法读取，将抛出异常
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            # 逐行读取文件
+            for line_num, line in enumerate(f, 1):
+                readlines += 1
+                line = line.strip()
+                onePage += line
+                if readlines == 10 and len(onePage) >= 1:  # 如果行非空
+                    text_blocks.append({
+                        "text": onePage,
+                        "page": 1,  # 假设所有行都在第一页
+                        "metadata": {"line_number": line_num}
+                    })
+                    readlines = 0
+                    onePage = ""
+        return text_blocks
 
 class DOCXLoader(BaseLoader):
     """Loader for DOCX files."""

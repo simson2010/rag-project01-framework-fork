@@ -66,7 +66,7 @@ class LoadingService:
                 )
             elif file_type.lower() == "txt":
                 self.active_loader = TXTLoader()
-                page_map = self.active_loader.load(file_path)
+                page_map = self.active_loader.load(method, file_path)
             elif file_type.lower() == "word": # Assuming 'word' type from frontend
                  self.active_loader = DOCXLoader()
                  page_map = self.active_loader.load(file_path)
